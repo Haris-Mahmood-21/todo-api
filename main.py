@@ -11,38 +11,50 @@ tasks = [
 
 next_id = 4
 
+
 class TaskCreate(BaseModel):
     title: str = ""
+
 
 class TaskUpdate(BaseModel):
     title: str = ""
     done: bool = False
 
+
 @app.get("/")
 def read_root():
+    """Describe this API and its main endpoint."""
     return {
         "name": "Task API",
         "version": "1.0",
         "endpoints": ["/tasks"]
     }
 
+
 @app.get("/health")
 def health_check():
+    """Simple health check to confirm the server is alive."""
     return {"status": "ok"}
+
 
 @app.get("/tasks")
 def get_tasks():
+    """Return the full list of tasks."""
     return tasks
+
 
 @app.get("/tasks/{task_id}")
 def get_task(task_id: int):
+    """Return a single task by its id, or 404 if not found."""
     for task in tasks:
         if task["id"] == task_id:
             return task
     raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
+
 @app.post("/tasks", status_code=201)
 def create_task(task: TaskCreate):
+    """Create a new task. Requires a non-empty title."""
     global next_id
     if not task.title or not task.title.strip():
         raise HTTPException(status_code=400, detail="Title is required and cannot be empty")
@@ -51,8 +63,10 @@ def create_task(task: TaskCreate):
     next_id += 1
     return new_task
 
+
 @app.put("/tasks/{task_id}")
 def update_task(task_id: int, task: TaskUpdate):
+    """Update an existing task's title and done status."""
     if not task.title or not task.title.strip():
         raise HTTPException(status_code=400, detail="Title is required and cannot be empty")
     for t in tasks:
@@ -62,8 +76,10 @@ def update_task(task_id: int, task: TaskUpdate):
             return t
     raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
+
 @app.delete("/tasks/{task_id}", status_code=204)
 def delete_task(task_id: int):
+    """Delete a task by its id."""
     for i, t in enumerate(tasks):
         if t["id"] == task_id:
             tasks.pop(i)
