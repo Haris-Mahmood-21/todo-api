@@ -8,7 +8,7 @@ Supports creating, reading, updating, and deleting tasks. Tasks are stored in me
 
 1. Clone the repo:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/todo-api.git
+   git clone https://github.com/Haris-Mahmood-21/todo-api.git
    cd todo-api
    ```
 
@@ -64,8 +64,7 @@ content-type: application/json
 
 Screenshot of the interactive docs at `/docs`, showing all endpoints and a working "Try it out" cycle:
 
-<!-- Paste your Swagger screenshot here, e.g.: -->
-<!-- ![Swagger UI](screenshot.png) -->
+![Swagger UI](screenshot.png)
 
 ## Data storage note
 
