@@ -1,19 +1,31 @@
-import sqlite3
+import os
 from contextlib import contextmanager
-from pathlib import Path
 
+import psycopg
+from psycopg.rows import dict_row
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+load_dotenv()
+
 app = FastAPI()
 
-DB_PATH = Path(__file__).parent / "tasks.db"
+DATABASE_URL = os.environ["DATABASE_URL"]
+
+
+# ---------------------------------------------------------------------------
+# Connection + Stage 0/1: create the table, seed it (only once)
+#
+# Every database line lives in this module (the "repository"). Routes below
+# never touch SQL directly — they only call these helpers. That's what keeps
+# a storage swap (memory -> SQLite -> Postgres) from ever touching a route.
+# ---------------------------------------------------------------------------
 
 @contextmanager
 def get_connection():
-    """Open a connection to tasks.db, row_factory set so rows behave like dicts."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    """Open a connection to Postgres using the DATABASE_URL from .env."""
+    conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
     try:
         yield conn
     finally:
@@ -21,38 +33,41 @@ def get_connection():
 
 
 def init_db():
-    """Create the tasks table if missing, and seed 3 example tasks only if empty.
-
-    The seed is wrapped in a transaction (executescript / explicit commit) so
-    it's all-or-nothing: if inserting the third seed task failed halfway
-    through, we would not want two orphan rows left behind on next startup.
-    """
+    """Create the tasks table if missing, and seed 3 example tasks only if empty."""
     with get_connection() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                done INTEGER NOT NULL DEFAULT 0
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id SERIAL PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    done BOOLEAN NOT NULL DEFAULT FALSE
+                )
+                """
             )
-            """
-        )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_title ON tasks (title)")
+            # Stretch goal: index on a column we'd filter on (done).
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks (done)")
 
-        count = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
-        if count == 0:
-            with conn: 
-                conn.executemany(
-                    "INSERT INTO tasks (title, done) VALUES (?, ?)",
+            cur.execute("SELECT COUNT(*) AS count FROM tasks")
+            count = cur.fetchone()["count"]
+            if count == 0:
+                cur.executemany(
+                    "INSERT INTO tasks (title, done) VALUES (%s, %s)",
                     [
-                        ("Buy milk", 0),
-                        ("Walk the dog", 0),
-                        ("Read a book", 1),
+                        ("Buy milk", False),
+                        ("Walk the dog", False),
+                        ("Read a book", True),
                     ],
                 )
+        conn.commit()
 
 
 init_db()
+
+
+# ---------------------------------------------------------------------------
+# Request/response models — unchanged since Assignment 1
+# ---------------------------------------------------------------------------
 
 class TaskCreate(BaseModel):
     title: str = ""
@@ -63,90 +78,100 @@ class TaskUpdate(BaseModel):
     done: bool = False
 
 
-def row_to_task(row: sqlite3.Row) -> dict:
+def row_to_task(row: dict) -> dict:
     return {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
+
+
+# ---------------------------------------------------------------------------
+# Routes — same paths, same status codes, same shapes as A1/A2.
+# Only the storage layer underneath changed (now Postgres, in Docker).
+# ---------------------------------------------------------------------------
 
 @app.get("/")
 def read_root():
-    """Describe this API and its main endpoint."""
-    return {
-        "name": "Task API",
-        "version": "2.0",
-        "endpoints": ["/tasks"]
-    }
+    return {"name": "Task API", "version": "3.0", "endpoints": ["/tasks"]}
 
 
 @app.get("/health")
 def health_check():
-    """Simple health check to confirm the server is alive."""
-    return {"status": "ok"}
+    """Health check that also pings the database with SELECT 1.
 
+    Real deploys gate traffic on exactly this: if the app is up but the
+    database isn't reachable, a load balancer should not route to it.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+        return {"status": "ok", "db": "ok"}
+    except Exception:
+        raise HTTPException(status_code=503, detail={"status": "error", "db": "unreachable"})
+
+
+# Stage 2: read from Postgres -------------------------------------------------
 
 @app.get("/tasks")
 def get_tasks():
-    """Return the full list of tasks, read live from tasks.db."""
     with get_connection() as conn:
-        rows = conn.execute("SELECT * FROM tasks").fetchall()
-        return [row_to_task(r) for r in rows]
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM tasks")
+            rows = cur.fetchall()
+    return [row_to_task(r) for r in rows]
 
 
 @app.get("/tasks/{task_id}")
 def get_task(task_id: int):
-    """Return a single task by its id, or 404 if not found."""
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM tasks WHERE id = ?", (task_id,)
-        ).fetchone()
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM tasks WHERE id = %s", (task_id,))
+            row = cur.fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
     return row_to_task(row)
 
 
+# Stage 3: create, update, delete on Postgres ---------------------------------
+
 @app.post("/tasks", status_code=201)
 def create_task(task: TaskCreate):
-    """Create a new task. Requires a non-empty title. The database assigns the id."""
     if not task.title or not task.title.strip():
         raise HTTPException(status_code=400, detail="Title is required and cannot be empty")
     with get_connection() as conn:
-        with conn:
-            cursor = conn.execute(
-                "INSERT INTO tasks (title, done) VALUES (?, ?)",
-                (task.title, 0),
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO tasks (title, done) VALUES (%s, %s) RETURNING *",
+                (task.title, False),
             )
-            new_id = cursor.lastrowid
-        row = conn.execute("SELECT * FROM tasks WHERE id = ?", (new_id,)).fetchone()
+            row = cur.fetchone()
+        conn.commit()
     return row_to_task(row)
 
 
 @app.put("/tasks/{task_id}")
 def update_task(task_id: int, task: TaskUpdate):
-    """Update an existing task's title and done status."""
     if not task.title or not task.title.strip():
         raise HTTPException(status_code=400, detail="Title is required and cannot be empty")
     with get_connection() as conn:
-        existing = conn.execute(
-            "SELECT * FROM tasks WHERE id = ?", (task_id,)
-        ).fetchone()
-        if existing is None:
-            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-        with conn:
-            conn.execute(
-                "UPDATE tasks SET title = ?, done = ? WHERE id = ?",
-                (task.title, int(task.done), task_id),
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE tasks SET title = %s, done = %s WHERE id = %s RETURNING *",
+                (task.title, task.done, task_id),
             )
-        row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+        conn.commit()
     return row_to_task(row)
 
 
 @app.delete("/tasks/{task_id}", status_code=204)
 def delete_task(task_id: int):
-    """Delete a task by its id."""
     with get_connection() as conn:
-        existing = conn.execute(
-            "SELECT * FROM tasks WHERE id = ?", (task_id,)
-        ).fetchone()
-        if existing is None:
-            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-        with conn:
-            conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM tasks WHERE id = %s RETURNING id", (task_id,))
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+        conn.commit()
     return
