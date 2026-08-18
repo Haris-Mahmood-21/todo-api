@@ -1,26 +1,38 @@
-# Task API — CRUD To-Do List (now backed by SQLite)
+# Task API — CRUD To-Do List (now containerized with Postgres)
 
-A CRUD API built with **Python + FastAPI** for FlyRank Internship — Backend Track, Week 3, Assignment A2.
+A CRUD API built with **Python + FastAPI** for FlyRank Internship — Backend Track, Week 1, Assignment A3.
 
-This is the direct sequel to Assignment 1: the same five endpoints, the same request/response
-shapes — but tasks are now stored in a real **SQLite** database (`tasks.db`) instead of an
-in-memory Python list. Data now survives a server restart.
+> **Note:** This repo has grown across three assignments in the same lane: storage went from an
+> in-memory list (A1) to a SQLite file (A2) to a containerized PostgreSQL database (A3, this one).
+> The routes and request/response shapes have stayed identical the whole way — only the storage
+> layer underneath changed each time.
 
-## Why SQLite
+The whole stack — the API and its Postgres database — now starts with a single command:
 
-SQLite was chosen because it needs **no separate server and no install of its own** — the entire
-database is a single file (`tasks.db`), created automatically the first time the app runs. That
-makes it the natural next step up from an in-memory list: zero setup, and your data now survives
-restarts. For a larger, multi-user production app you'd eventually reach for something like
-Postgres, but for a single-service to-do API, SQLite is the right amount of database.
+```bash
+docker compose up
+```
 
-## Where the database file lives
+## Why Postgres in Docker
 
-`tasks.db` sits in the project root, next to `main.py`. It is created automatically on first
-run and is **git-ignored** (see `.gitignore`) — every fresh clone starts with a clean database
-that gets seeded on its first startup, not with someone else's data.
+Postgres is a real database server, the same engine behind a large share of production backends.
+Running it in Docker means nobody has to install Postgres or fight version mismatches — the
+official `postgres` image behaves identically on every machine. A named **volume**
+(`taskdata`) keeps the actual rows on disk outside the container, so `docker compose down`
+followed by `docker compose up` brings the stack back with all the data still there.
+
+## Secrets
+
+The database connection string is never hardcoded. It's read from a `DATABASE_URL` environment
+variable:
+
+- `.env` — your real local values, **git-ignored**, never committed.
+- `.env.example` — the same keys with placeholder values, committed so anyone cloning the repo
+  knows what to set.
 
 ## How to run it
+
+**Requires:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) (free) installed and running.
 
 1. Clone the repo:
    ```bash
@@ -28,42 +40,37 @@ that gets seeded on its first startup, not with someone else's data.
    cd todo-api
    ```
 
-2. Create and activate a virtual environment:
+2. Copy the example env file:
    ```bash
-   python3 -m venv venv
-   source venv/bin/activate   # Mac/Linux
-   venv\Scripts\activate      # Windows
+   cp .env.example .env
    ```
 
-3. Install dependencies:
+3. Start the whole stack (API + Postgres) with one command:
    ```bash
-   pip install -r requirements.txt
+   docker compose up
    ```
 
-4. Run the server (this single command is all a fresh clone needs — `tasks.db`, the `tasks`
-   table, and the 3 seed tasks are all created automatically):
-   ```bash
-   uvicorn main:app --reload
-   ```
-
-5. Visit:
+4. Visit:
    - API root: http://localhost:8000/
-   - Swagger UI (interactive docs): http://localhost:8000/docs
+   - Swagger UI: http://localhost:8000/docs
+
+That's it — no manual Postgres install, no manual table creation. The `tasks` table and 3 seed
+tasks are created automatically the first time the `api` service starts.
 
 ## Endpoints
 
-| Method | Path              | Description                          | Success | Errors             |
-|--------|-------------------|---------------------------------------|---------|---------------------|
-| GET    | `/`               | API info                              | 200     | —                   |
-| GET    | `/health`         | Health check                          | 200     | —                   |
-| GET    | `/tasks`          | List all tasks (read from SQLite)     | 200     | —                   |
-| GET    | `/tasks/{id}`     | Get a single task                     | 200     | 404 if not found    |
-| POST   | `/tasks`          | Create a new task (INSERT)            | 201     | 400 if title missing/empty |
-| PUT    | `/tasks/{id}`     | Update a task's title and done status (UPDATE) | 200 | 400 invalid body, 404 not found |
-| DELETE | `/tasks/{id}`     | Delete a task (DELETE)                | 204     | 404 if not found    |
+| Method | Path           | Description                                    | Success | Errors                      |
+|--------|----------------|-------------------------------------------------|---------|-------------------------------|
+| GET    | `/`            | API info                                        | 200     | —                              |
+| GET    | `/health`      | Health check — also runs `SELECT 1` against the DB | 200  | 503 if DB unreachable          |
+| GET    | `/tasks`       | List all tasks                                  | 200     | —                              |
+| GET    | `/tasks/{id}`  | Get a single task                               | 200     | 404 if not found               |
+| POST   | `/tasks`       | Create a task (`INSERT ... RETURNING *`)        | 201     | 400 if title missing/empty     |
+| PUT    | `/tasks/{id}`  | Update a task's title/done status               | 200     | 400 invalid body, 404 not found |
+| DELETE | `/tasks/{id}`  | Delete a task                                   | 204     | 404 if not found               |
 
-All queries use **parameterized placeholders** (`?`) — no user input is ever glued directly
-into a SQL string.
+All queries use **parameterized placeholders** (`%s`, via `psycopg`) — no user input is ever
+glued into a SQL string.
 
 ## Example request
 
@@ -80,55 +87,46 @@ content-type: application/json
 {"id":4,"title":"Buy milk","done":false}
 ```
 
-## Proving persistence
+## Proving persistence across a full-stack restart
 
 ```bash
-curl -X POST http://localhost:8000/tasks -H "Content-Type: application/json" -d '{"title":"Learn SQLite"}'
-# stop the server (Ctrl+C), start it again with: uvicorn main:app --reload
+curl -X POST http://localhost:8000/tasks -H "Content-Type: application/json" -d '{"title":"Learn Docker"}'
+docker compose down
+docker compose up
 curl http://localhost:8000/tasks
-# "Learn SQLite" is still there — this is the whole point of a database.
+# "Learn Docker" is still there — the volume kept it, even after the containers were torn down.
 ```
 
-Restarting the server three times in a row still shows exactly 3 seeded tasks (not 6, not 9) —
-the seed only runs when the table is empty.
+## Screenshot of the data in Postgres
 
-## Stage 4 — exploring the database by hand
+Ran this inside the running `db` container to confirm the rows:
 
-Opened `tasks.db` in **DB Browser for SQLite** and ran these queries in the "Execute SQL" tab:
-
-```sql
-SELECT * FROM tasks WHERE done = 1;
+```bash
+docker exec -it todo-api-db-1 psql -U postgres -d tasks -c "SELECT * FROM tasks;"
 ```
-Returned exactly one row — `Read a book` — the only seeded task marked complete. Calling
-`GET /tasks` from the running API immediately reflected any change made this way, with no
-restart needed, because the API and DB Browser are reading the exact same file.
 
-Screenshot of the database open in DB Browser:
-
-![DB Browser](db_browser_screenshot.png)
-
-## Swagger UI
-
-Screenshot of the interactive docs at `/docs`:
-
-![Swagger UI](screenshot.png)
+![Database screenshot](db_screenshot.png)
 
 ## Data storage note
 
-Tasks are stored in a SQLite database file, `tasks.db`, using Python's built-in `sqlite3`
-module. The `tasks` table is created automatically if missing, and 3 example tasks are seeded
-only when the table is empty (checked with `SELECT COUNT(*)` before inserting, and the seed
-insert itself runs inside a transaction so all 3 rows commit together or not at all).
+Tasks are stored in a PostgreSQL database running as its own container, using the `psycopg`
+driver. The `tasks` table (`id SERIAL PRIMARY KEY, title TEXT, done BOOLEAN`) is created
+automatically if missing, and 3 example tasks are seeded only when the table is empty — the
+same first-run rule used in A2. An index (`idx_tasks_done`) was added on the `done` column since
+that's the most likely filter column for a future "show only completed tasks" feature.
 
-An index (`idx_tasks_title`) was added on the `title` column since future search/sort features
-would filter or order on it — an index lets SQLite look up matching rows without scanning the
-whole table.
+`GET /health` doubles as a real health check: it runs `SELECT 1` against the database, not just
+returning `200 OK` blindly. A load balancer in production would use an endpoint like this to
+decide whether to keep routing traffic to an instance, or pull it out of rotation if its
+database connection has failed.
 
-Proof that only the storage layer changed: the same `curl` commands from Assignment 1 (same
-paths, same status codes, same JSON shapes) pass unchanged against this SQLite version. That's
-the point of separating the API from its storage — clients never notice the swap.
+Proof that only the storage layer changed across all three assignments: the exact same `curl`
+commands from A1 and A2 (same paths, same status codes, same JSON shapes) pass unchanged against
+this Postgres version. That's the point of keeping the database logic in one module (the
+"repository") separate from the routes — the API is a promise, and the database is just where
+that promise is currently being kept.
 
 ## AI vs me
 
 *(To fill in after completing Stage 6 — the AI rematch: your own prompt, what the AI's
-version got right/wrong, and what your prompt left the AI to decide on its own.)*
+containerized version got right/wrong, and what your prompt left the AI to decide on its own.)*
