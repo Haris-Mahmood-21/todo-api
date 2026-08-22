@@ -1,132 +1,164 @@
-# Task API — CRUD To-Do List (now containerized with Postgres)
+# Auth API — Supabase Authentication with FastAPI
 
-A CRUD API built with **Python + FastAPI** for FlyRank Internship — Backend Track, Week 1, Assignment A3.
+A secure authentication API built with **Python + FastAPI** and **Supabase Auth** for FlyRank Internship — Backend Track, Week 2, Assignment A4.
 
-> **Note:** This repo has grown across three assignments in the same lane: storage went from an
-> in-memory list (A1) to a SQLite file (A2) to a containerized PostgreSQL database (A3, this one).
-> The routes and request/response shapes have stayed identical the whole way — only the storage
-> layer underneath changed each time.
+> **Note:** This repo has grown across four assignments in the same lane:
+> A1 → in-memory list · A2 → SQLite · A3 → containerized PostgreSQL · **A4 (this one) → Supabase Auth**.
+> The previous assignment's Task CRUD code is preserved (commented out) in `main.py` for reference.
 
-The whole stack — the API and its Postgres database — now starts with a single command:
+---
 
-```bash
-docker compose up
+## What it does
+
+Implements a complete authentication flow using **Supabase as the Identity Provider** — your server never stores or hashes passwords. Supabase handles all of that and issues signed JWTs; your server only verifies them.
+
+```
+Client → POST /auth/signup  → Supabase creates account
+Client → POST /auth/login   → Supabase returns JWT
+Client → GET  /protected/*  → FastAPI verifies JWT with Supabase → allows/rejects
 ```
 
-## Why Postgres in Docker
+---
 
-Postgres is a real database server, the same engine behind a large share of production backends.
-Running it in Docker means nobody has to install Postgres or fight version mismatches — the
-official `postgres` image behaves identically on every machine. A named **volume**
-(`taskdata`) keeps the actual rows on disk outside the container, so `docker compose down`
-followed by `docker compose up` brings the stack back with all the data still there.
+## Setup
 
-## Secrets
-
-The database connection string is never hardcoded. It's read from a `DATABASE_URL` environment
-variable:
-
-- `.env` — your real local values, **git-ignored**, never committed.
-- `.env.example` — the same keys with placeholder values, committed so anyone cloning the repo
-  knows what to set.
-
-## How to run it
-
-**Requires:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) (free) installed and running.
-
-1. Clone the repo:
-   ```bash
-   git clone https://github.com/Haris-Mahmood-21/todo-api.git
-   cd todo-api
-   ```
-
-2. Copy the example env file:
-   ```bash
-   cp .env.example .env
-   ```
-
-3. Start the whole stack (API + Postgres) with one command:
-   ```bash
-   docker compose up
-   ```
-
-4. Visit:
-   - API root: http://localhost:8000/
-   - Swagger UI: http://localhost:8000/docs
-
-That's it — no manual Postgres install, no manual table creation. The `tasks` table and 3 seed
-tasks are created automatically the first time the `api` service starts.
-
-## Endpoints
-
-| Method | Path           | Description                                    | Success | Errors                      |
-|--------|----------------|-------------------------------------------------|---------|-------------------------------|
-| GET    | `/`            | API info                                        | 200     | —                              |
-| GET    | `/health`      | Health check — also runs `SELECT 1` against the DB | 200  | 503 if DB unreachable          |
-| GET    | `/tasks`       | List all tasks                                  | 200     | —                              |
-| GET    | `/tasks/{id}`  | Get a single task                               | 200     | 404 if not found               |
-| POST   | `/tasks`       | Create a task (`INSERT ... RETURNING *`)        | 201     | 400 if title missing/empty     |
-| PUT    | `/tasks/{id}`  | Update a task's title/done status               | 200     | 400 invalid body, 404 not found |
-| DELETE | `/tasks/{id}`  | Delete a task                                   | 204     | 404 if not found               |
-
-All queries use **parameterized placeholders** (`%s`, via `psycopg`) — no user input is ever
-glued into a SQL string.
-
-## Example request
-
+### 1. Clone the repo
 ```bash
-curl -i -X POST http://localhost:8000/tasks \
+git clone https://github.com/Haris-Mahmood-21/todo-api.git
+cd todo-api
+```
+
+### 2. Create and fill in your `.env`
+```bash
+cp .env.example .env
+```
+Then edit `.env` with your real values:
+```env
+SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_KEY=your-anon-key-here
+```
+
+Get these from your [Supabase Dashboard](https://supabase.com) → **Project Settings → API**.
+
+> **One-time Supabase setting:** Go to **Authentication → Sign In / Providers → Email** and turn **"Confirm email" OFF** so a fresh signup can log in immediately.
+
+### 3. Create a virtual environment and install dependencies
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 4. Run the server
+```bash
+uvicorn main:app --reload
+```
+
+Server starts at **http://localhost:8000**
+Interactive docs at **http://localhost:8000/docs**
+
+---
+
+## Environment Variables
+
+| Variable       | Description                                        |
+|----------------|----------------------------------------------------|
+| `SUPABASE_URL` | Your Supabase project URL                          |
+| `SUPABASE_KEY` | Your Supabase anon (public) key — safe in your app |
+
+> The `DATABASE_URL` variable in `.env.example` is kept for the previous assignment (A3 Postgres setup) and is not used by the A4 auth server.
+
+---
+
+## API Endpoints
+
+| Method | Path                    | Auth Required       | Status | Description                              |
+|--------|-------------------------|---------------------|--------|------------------------------------------|
+| GET    | `/`                     | No                  | 200    | Server status                            |
+| POST   | `/auth/signup`          | No                  | 201    | Create a new user account                |
+| POST   | `/auth/login`           | No                  | 200    | Log in — returns `access_token` + `refresh_token` |
+| POST   | `/auth/logout`          | Bearer token        | 204    | End the session                          |
+| GET    | `/public/info`          | No                  | 200    | Public info, open to everyone            |
+| GET    | `/protected/profile`    | Bearer token        | 200    | Returns verified user's id, email, created_at |
+| GET    | `/protected/dashboard`  | Bearer token        | 200    | Returns a welcome message for the user   |
+
+### Error codes
+
+| Code | Meaning                                              |
+|------|------------------------------------------------------|
+| 400  | Missing `email` or `password` in request body        |
+| 401  | Missing, malformed, or invalid/expired Bearer token  |
+
+---
+
+## How to authenticate
+
+**Sign up:**
+```bash
+curl -i -X POST http://localhost:8000/auth/signup \
   -H "Content-Type: application/json" \
-  -d '{"title":"Buy milk"}'
+  -d '{"email":"you@example.com","password":"yourpassword"}'
 ```
 
-```
-HTTP/1.1 201 Created
-content-type: application/json
-
-{"id":4,"title":"Buy milk","done":false}
-```
-
-## Proving persistence across a full-stack restart
-
+**Log in (get your token):**
 ```bash
-curl -X POST http://localhost:8000/tasks -H "Content-Type: application/json" -d '{"title":"Learn Docker"}'
-docker compose down
-docker compose up
-curl http://localhost:8000/tasks
-# "Learn Docker" is still there — the volume kept it, even after the containers were torn down.
+curl -i -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"yourpassword"}'
 ```
 
-## Screenshot of the data in Postgres
-
-Ran this inside the running `db` container to confirm the rows:
-
+**Call a protected route:**
 ```bash
-docker exec -it todo-api-db-1 psql -U postgres -d tasks -c "SELECT * FROM tasks;"
+curl -i http://localhost:8000/protected/profile \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN_HERE"
 ```
 
-![Database screenshot](db_screenshot.png)
+**Tamper the token (see the guard reject it):**
+```bash
+curl -i http://localhost:8000/protected/profile \
+  -H "Authorization: Bearer TAMPERED_TOKEN"
+# → 401 Invalid or expired token
+```
 
-## Data storage note
+---
 
-Tasks are stored in a PostgreSQL database running as its own container, using the `psycopg`
-driver. The `tasks` table (`id SERIAL PRIMARY KEY, title TEXT, done BOOLEAN`) is created
-automatically if missing, and 3 example tasks are seeded only when the table is empty — the
-same first-run rule used in A2. An index (`idx_tasks_done`) was added on the `done` column since
-that's the most likely filter column for a future "show only completed tasks" feature.
+## Swagger UI
 
-`GET /health` doubles as a real health check: it runs `SELECT 1` against the database, not just
-returning `200 OK` blindly. A load balancer in production would use an endpoint like this to
-decide whether to keep routing traffic to an instance, or pull it out of rotation if its
-database connection has failed.
+FastAPI serves interactive docs automatically at **http://localhost:8000/docs**.
 
-Proof that only the storage layer changed across all three assignments: the exact same `curl`
-commands from A1 and A2 (same paths, same status codes, same JSON shapes) pass unchanged against
-this Postgres version. That's the point of keeping the database logic in one module (the
-"repository") separate from the routes — the API is a promise, and the database is just where
-that promise is currently being kept.
+Because the protected routes use FastAPI's `HTTPBearer` security scheme, Swagger shows a **🔒 lock icon** on every protected endpoint. Click **Authorize**, paste your `access_token` from `/auth/login`, and use **Try it out** to call any route directly from the browser — no curl needed.
+
+![Swagger UI with bearer auth](swagger_screenshot.png)
+
+---
+
+## How the auth guard works
+
+The reusable `get_current_user` dependency is the single guard applied to every protected route:
+
+```python
+bearer_scheme = HTTPBearer(auto_error=False)
+
+def get_current_user(credentials = Depends(bearer_scheme)):
+    if credentials is None:
+        raise HTTPException(401, {"error": "Access token required"})
+    try:
+        user = supabase.auth.get_user(credentials.credentials)
+        return user.user
+    except Exception:
+        raise HTTPException(401, {"error": "Invalid or expired token"})
+```
+
+Any route protected with `Depends(get_current_user)` gets the full verification with zero repeated code — one guard, standing at every locked door.
+
+---
 
 ## AI vs me
 
-*(To fill in after completing Stage 6 — the AI rematch: your own prompt, what the AI's
-containerized version got right/wrong, and what your prompt left the AI to decide on its own.)*
+*(To fill in after completing Stage 7 — the AI rematch: your own prompt, what the AI's version got right/wrong, and what your prompt left the AI to decide on its own.)*
+
+---
+
+## Previous assignment (A3)
+
+The Task CRUD API (Postgres + Docker) from A3 is preserved inside `main.py` in commented-out blocks, and `compose.yaml` / `dockerfile` are kept in the repo so the previous assignment history is intact.
