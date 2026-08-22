@@ -151,11 +151,6 @@ def get_current_user(credentials = Depends(bearer_scheme)):
 
 Any route protected with `Depends(get_current_user)` gets the full verification with zero repeated code — one guard, standing at every locked door.
 
----
-
-## AI vs me
-
-*(To fill in after completing Stage 7 — the AI rematch: your own prompt, what the AI's version got right/wrong, and what your prompt left the AI to decide on its own.)*
 
 ---
 
