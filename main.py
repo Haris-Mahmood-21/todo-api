@@ -82,7 +82,7 @@ def login(body: AuthBody):
 
 
 # =============================================================================
-# Stage 2 — Public & Protected Gates (token presence check only, not verified)
+# Stage 2 — Public route (no auth)
 # =============================================================================
 
 @app.get("/public/info")
@@ -91,21 +91,35 @@ def public_info():
     return {"message": "Welcome stranger! This info is public."}
 
 
+# =============================================================================
+# Stage 3 — Protected route with real Supabase token verification
+# =============================================================================
+
 @app.get("/protected/profile")
 def profile(request: Request):
     """
-    Protected route — requires Authorization: Bearer <token> header.
-    Stage 2: only checks the token is PRESENT, not yet verified.
-    Stage 3 will add actual Supabase verification.
+    Protected route — extracts the Bearer token and verifies it with Supabase.
+    Valid token  → 200 with user id, email, created_at.
+    Missing/bad  → 401.
     """
     auth_header = request.headers.get("authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Access token required")
+        raise HTTPException(status_code=401, detail={"error": "Access token required"})
     token = auth_header.split(" ", 1)[1].strip()
     if not token:
-        raise HTTPException(status_code=401, detail="Access token required")
-    # Token is present but NOT verified yet — that is Stage 3
-    return {"message": "Token present (not yet verified — Stage 2)"}
+        raise HTTPException(status_code=401, detail={"error": "Access token required"})
+
+    try:
+        user_response = supabase.auth.get_user(token)
+        user = user_response.user
+    except Exception:
+        raise HTTPException(status_code=401, detail={"error": "Invalid or expired token"})
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "created_at": str(user.created_at),
+    }
 
 
 # =============================================================================
