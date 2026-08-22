@@ -1,9 +1,10 @@
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.requests import Request
 from pydantic import BaseModel
 
@@ -20,7 +21,11 @@ SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI()
+app = FastAPI(
+    title="Auth API — Supabase & FastAPI",
+    description="Secure authentication API with Supabase Auth. Sign up, log in, log out, and access protected routes using Bearer tokens.",
+    version="4.0",
+)
 
 
 @app.exception_handler(RequestValidationError)
@@ -92,34 +97,71 @@ def public_info():
 
 
 # =============================================================================
-# Stage 3 — Protected route with real Supabase token verification
+# Stage 4 — Reusable auth dependency (replaces manual header check from Stage 3)
+#
+# HTTPBearer(auto_error=False) lets us return 401 ourselves instead of the
+# default 403 FastAPI would send when the Authorization header is missing.
+# This dependency is the single "guard" — add Depends(get_current_user) to
+# any route and it is instantly protected with no repeated auth code.
 # =============================================================================
 
-@app.get("/protected/profile")
-def profile(request: Request):
-    """
-    Protected route — extracts the Bearer token and verifies it with Supabase.
-    Valid token  → 200 with user id, email, created_at.
-    Missing/bad  → 401.
-    """
-    auth_header = request.headers.get("authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail={"error": "Access token required"})
-    token = auth_header.split(" ", 1)[1].strip()
-    if not token:
-        raise HTTPException(status_code=401, detail={"error": "Access token required"})
+bearer_scheme = HTTPBearer(auto_error=False)
 
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+):
+    """
+    FastAPI dependency: extracts the Bearer token, verifies it with Supabase,
+    and returns the verified user object. Raises 401 on any failure.
+    """
+    if credentials is None:
+        raise HTTPException(status_code=401, detail={"error": "Access token required"})
+    token = credentials.credentials
     try:
         user_response = supabase.auth.get_user(token)
-        user = user_response.user
+        return user_response.user
     except Exception:
         raise HTTPException(status_code=401, detail={"error": "Invalid or expired token"})
 
+
+# =============================================================================
+# Stage 3 / 4 — Protected routes using the reusable dependency
+# =============================================================================
+
+@app.get("/protected/profile")
+def profile(user=Depends(get_current_user)):
+    """Returns the verified user's profile data. Requires Bearer token."""
     return {
         "id": user.id,
         "email": user.email,
         "created_at": str(user.created_at),
     }
+
+
+@app.get("/protected/dashboard")
+def dashboard(user=Depends(get_current_user)):
+    """
+    Second protected route — uses the exact same dependency, zero new auth code.
+    Proves the guard is reusable (Stage 4 checkpoint requirement).
+    """
+    return {
+        "message": f"Welcome to your dashboard, {user.email}",
+        "user_id": user.id,
+    }
+
+
+@app.post("/auth/logout", status_code=204)
+def logout(user=Depends(get_current_user)):
+    """
+    Protected logout route — guard runs first, then Supabase session is ended.
+    Returns 204 No Content on success.
+    """
+    try:
+        supabase.auth.sign_out()
+    except Exception:
+        pass  # Best-effort; token is already verified so we still return 204
+    return
 
 
 # =============================================================================
