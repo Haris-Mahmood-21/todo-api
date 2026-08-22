@@ -82,6 +82,33 @@ def login(body: AuthBody):
 
 
 # =============================================================================
+# Stage 2 — Public & Protected Gates (token presence check only, not verified)
+# =============================================================================
+
+@app.get("/public/info")
+def public_info():
+    """Open to everyone — no auth required."""
+    return {"message": "Welcome stranger! This info is public."}
+
+
+@app.get("/protected/profile")
+def profile(request: Request):
+    """
+    Protected route — requires Authorization: Bearer <token> header.
+    Stage 2: only checks the token is PRESENT, not yet verified.
+    Stage 3 will add actual Supabase verification.
+    """
+    auth_header = request.headers.get("authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Access token required")
+    token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Access token required")
+    # Token is present but NOT verified yet — that is Stage 3
+    return {"message": "Token present (not yet verified — Stage 2)"}
+
+
+# =============================================================================
 # PREVIOUS ASSIGNMENT (A3) — Postgres / Task CRUD API
 # Kept for reference. All code below is commented out.
 # =============================================================================
