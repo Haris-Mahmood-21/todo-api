@@ -1,7 +1,11 @@
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.requests import Request
+from pydantic import BaseModel
 
 load_dotenv()
 
@@ -19,9 +23,62 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 app = FastAPI()
 
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Convert FastAPI 422 validation errors to 400 Bad Request per assignment spec."""
+    return JSONResponse(
+        status_code=400,
+        content={"error": "Email and password are required"},
+    )
+
+
 @app.get("/")
 def read_root():
     return {"message": "Server running and connected to Supabase", "version": "4.0"}
+
+
+# =============================================================================
+# Stage 1 — Auth: Sign Up & Log In
+# =============================================================================
+
+class AuthBody(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/auth/signup", status_code=201)
+def signup(body: AuthBody):
+    """Register a new user via Supabase Auth. Returns 201 with user object."""
+    if not body.email or not body.password:
+        raise HTTPException(status_code=400, detail="Email and password are required")
+    try:
+        response = supabase.auth.sign_up({"email": body.email, "password": body.password})
+        return {
+            "user": {
+                "id": response.user.id,
+                "email": response.user.email,
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/auth/login")
+def login(body: AuthBody):
+    """Authenticate a user. Returns 200 with access_token and refresh_token."""
+    if not body.email or not body.password:
+        raise HTTPException(status_code=400, detail="Email and password are required")
+    try:
+        response = supabase.auth.sign_in_with_password(
+            {"email": body.email, "password": body.password}
+        )
+        return {
+            "access_token": response.session.access_token,
+            "refresh_token": response.session.refresh_token,
+            "token_type": "bearer",
+        }
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid login credentials")
 
 
 # =============================================================================
@@ -32,19 +89,9 @@ def read_root():
 # import psycopg
 # from psycopg.rows import dict_row
 # from contextlib import contextmanager
-# from fastapi import HTTPException
-# from pydantic import BaseModel
 #
 # DATABASE_URL = os.environ["DATABASE_URL"]
 #
-#
-# # ---------------------------------------------------------------------------
-# # Connection + Stage 0/1: create the table, seed it (only once)
-# #
-# # Every database line lives in this module (the "repository"). Routes below
-# # never touch SQL directly — they only call these helpers. That's what keeps
-# # a storage swap (memory -> SQLite -> Postgres) from ever touching a route.
-# # ---------------------------------------------------------------------------
 #
 # @contextmanager
 # def get_connection():
@@ -69,9 +116,7 @@ def read_root():
 #                 )
 #                 """
 #             )
-#             # Stretch goal: index on a column we'd filter on (done).
 #             cur.execute("CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks (done)")
-#
 #             cur.execute("SELECT COUNT(*) AS count FROM tasks")
 #             count = cur.fetchone()["count"]
 #             if count == 0:
@@ -89,10 +134,6 @@ def read_root():
 # init_db()
 #
 #
-# # ---------------------------------------------------------------------------
-# # Request/response models — unchanged since Assignment 1
-# # ---------------------------------------------------------------------------
-#
 # class TaskCreate(BaseModel):
 #     title: str = ""
 #
@@ -106,11 +147,6 @@ def read_root():
 #     return {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
 #
 #
-# # ---------------------------------------------------------------------------
-# # Routes — same paths, same status codes, same shapes as A1/A2.
-# # Only the storage layer underneath changed (now Postgres, in Docker).
-# # ---------------------------------------------------------------------------
-#
 # @app.get("/")
 # def read_root_old():
 #     return {"name": "Task API", "version": "3.0", "endpoints": ["/tasks"]}
@@ -118,7 +154,6 @@ def read_root():
 #
 # @app.get("/health")
 # def health_check():
-#     """Health check that also pings the database with SELECT 1."""
 #     try:
 #         with get_connection() as conn:
 #             with conn.cursor() as cur:
@@ -128,8 +163,6 @@ def read_root():
 #     except Exception:
 #         raise HTTPException(status_code=503, detail={"status": "error", "db": "unreachable"})
 #
-#
-# # Stage 2: read from Postgres -------------------------------------------------
 #
 # @app.get("/tasks")
 # def get_tasks():
@@ -150,8 +183,6 @@ def read_root():
 #         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 #     return row_to_task(row)
 #
-#
-# # Stage 3: create, update, delete on Postgres ---------------------------------
 #
 # @app.post("/tasks", status_code=201)
 # def create_task(task: TaskCreate):
