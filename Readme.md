@@ -1,10 +1,14 @@
-# Auth API — Supabase Authentication with FastAPI
+# Todo API & Backend Internship Assignments
 
-A secure authentication API built with **Python + FastAPI** and **Supabase Auth** for FlyRank Internship — Backend Track, Week 2, Assignment A4.
+> **Assignments in this repository:**
+> - **Week 5 — Assignment A9**: [The Polite Scraper (Books to Scrape Pipeline)](scraper/README.md) — *Located in `scraper/`*
+> - **Week 4 — Assignment A4**: [Auth API (Supabase Authentication with FastAPI)](#auth-api--supabase-authentication-with-fastapi)
+> - **Week 3 — Assignment A3**: PostgreSQL & Docker Tasks API *(Code preserved in `main.py`, `compose.yaml`)*
+> - **Week 1-2 — Assignments A1 & A2**: In-Memory & SQLite Tasks APIs
 
-> **Note:** This repo has grown across four assignments in the same lane:
-> A1 → in-memory list · A2 → SQLite · A3 → containerized PostgreSQL · **A4 (this one) → Supabase Auth**.
-> The previous assignment's Task CRUD code is preserved (commented out) in `main.py` for reference.
+---
+
+## Auth API — Supabase Authentication with FastAPI
 
 ---
 
