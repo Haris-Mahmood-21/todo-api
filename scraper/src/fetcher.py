@@ -3,23 +3,9 @@ Polite HTTP Fetcher with Local File Caching, Smart Retries, and Metrics Tracking
 """
 import os
 import time
-import socket
 from pathlib import Path
 from typing import Tuple, Optional, Dict
 import requests
-
-# Enable DNS fallback if local system DNS fails to resolve public hostnames
-_orig_getaddrinfo = socket.getaddrinfo
-
-def _custom_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-    try:
-        return _orig_getaddrinfo(host, port, family, type, proto, flags)
-    except socket.gaierror:
-        if host == "books.toscrape.com":
-            return _orig_getaddrinfo("35.211.122.109", port, family, type, proto, flags)
-        raise
-
-socket.getaddrinfo = _custom_getaddrinfo
 
 USER_AGENT = "FlyRankInternship-A9/1.0 (+https://github.com/Haris-Mahmood-21/todo-api)"
 DEFAULT_TIMEOUT = 10  # seconds

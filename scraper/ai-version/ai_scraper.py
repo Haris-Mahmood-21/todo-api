@@ -6,7 +6,6 @@ import os
 import re
 import time
 import json
-import socket
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urljoin
@@ -15,17 +14,6 @@ from typing import Optional, List, Dict, Any
 import requests
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field, field_validator
-
-# DNS Fallback for reliability
-_orig_getaddrinfo = socket.getaddrinfo
-def _custom_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-    try:
-        return _orig_getaddrinfo(host, port, family, type, proto, flags)
-    except socket.gaierror:
-        if host == "books.toscrape.com":
-            return _orig_getaddrinfo("35.211.122.109", port, family, type, proto, flags)
-        raise
-socket.getaddrinfo = _custom_getaddrinfo
 
 USER_AGENT = "FlyRankInternship-A9/1.0 (+https://github.com/Haris-Mahmood-21/todo-api)"
 CACHE_DIR = Path(__file__).resolve().parent.parent / "cache"
