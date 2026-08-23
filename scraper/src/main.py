@@ -6,9 +6,11 @@ import argparse
 import json
 import re
 import sys
+from pathlib import Path
 from scraper.src.fetcher import fetch_url
 from scraper.src.crawler import crawl_catalogue
 from scraper.src.extractor import extract_raw_book
+from scraper.src.models import validate_and_store_records, OUTPUT_DIR
 
 CATALOGUE_PAGE_1 = "https://books.toscrape.com/catalogue/page-1.html"
 
@@ -61,9 +63,32 @@ def run_stage_3():
     return raw_records
 
 
+def run_stage_4():
+    print("=== Stage 4: Clean it, check it, store it ===")
+    raw_records = run_stage_3()
+    valid_records, invalid_records = validate_and_store_records(raw_records)
+
+    books_path = OUTPUT_DIR / "books.json"
+    with open(books_path, "r", encoding="utf-8") as f:
+        stored = json.load(f)
+
+    # Verification checks
+    count = len(stored)
+    all_prices_numeric = all(isinstance(r["price_gbp"], (int, float)) for r in stored)
+    all_urls_valid = all(r["product_url"].startswith("https://") for r in stored)
+
+    print("\n--- Stage 4 Validation Summary ---")
+    print(f"books.json count: {count}")
+    print(f"All price_gbp numeric: {all_prices_numeric}")
+    print(f"All product_url start with https://: {all_urls_valid}")
+    print(f"Invalid records: {len(invalid_records)}")
+    print(f"Saved to: {books_path}")
+    print("----------------------------------\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description="The Polite Scraper Pipeline")
-    parser.add_argument("--stage", type=int, default=3, help="Stage to run (1-6)")
+    parser.add_argument("--stage", type=int, default=4, help="Stage to run (1-6)")
     args = parser.parse_args()
 
     if args.stage == 1:
@@ -72,6 +97,8 @@ def main():
         run_stage_2()
     elif args.stage == 3:
         run_stage_3()
+    elif args.stage == 4:
+        run_stage_4()
     else:
         print(f"Stage {args.stage} is not yet implemented.")
 
