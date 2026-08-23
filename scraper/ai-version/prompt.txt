@@ -1,0 +1,28 @@
+Write a polite, robust, and idempotent Python web scraping pipeline for the practice sandbox site 'https://books.toscrape.com'.
+
+Requirements:
+1. Target Scope: Traverse exactly the first 3 catalogue pages following pagination links ('li.next a'), discovering and extracting all 60 book detail pages.
+2. Politeness & Networking:
+   - Identify with custom User-Agent: 'FlyRankInternship-A9/1.0 (+https://github.com/Haris-Mahmood-21/todo-api)'
+   - Strict 10-second request timeout.
+   - Enforce a minimum delay of >= 500ms between real network requests.
+   - Implement disk caching of HTML pages in a local 'cache/' directory. Repeated runs must read from cache with zero network calls and no artificial delay.
+3. Data Extraction (8 raw receipt fields):
+   - title: book title string
+   - product_url: absolute canonical book detail URL
+   - price_text: raw price string (e.g. '£51.77')
+   - availability_text: stock status string (e.g. 'In stock (22 available)')
+   - rating_text: rating word (e.g. 'Three')
+   - description: product description string, or null (None) if not present (never invent text)
+   - source_page: catalogue page URL where the link was found (provenance)
+   - fetched_at: ISO 8601 UTC timestamp (provenance)
+4. Normalization & Schema Validation:
+   - Normalize price_text into numeric float 'price_gbp' (e.g. 51.77) while keeping raw 'price_text'.
+   - Validate every record using a Pydantic model with strict field types and https URL validators.
+   - Deduplicate records by canonical product_url.
+   - Save valid records to 'output/books.json' (producing exactly 60 records, even after rerun - idempotency).
+   - Save invalid/failed validation records to 'output/errors.json'.
+5. Fault Tolerance & Run Reporting:
+   - Process each book page in isolation with try/except so one broken page does not kill the run.
+   - Implement retry: Retry once on timeout or 5xx server error; DO NOT retry on 404 or 403 client errors.
+   - Write 'output/run-report.json' at the end of the run containing: start_time, duration_seconds, pages_fetched, cache_hits, valid_records, invalid_records, failed_pages.
