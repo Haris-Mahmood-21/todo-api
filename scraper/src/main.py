@@ -13,7 +13,7 @@ from pathlib import Path
 from scraper.src.fetcher import fetch_url, reset_metrics, get_metrics
 from scraper.src.crawler import crawl_catalogue
 from scraper.src.extractor import extract_raw_book
-from scraper.src.models import validate_and_store_records, OUTPUT_DIR
+from scraper.src.models import validate_and_store_records, export_records_to_csv, OUTPUT_DIR
 from scraper.src.reporter import generate_run_report
 
 CATALOGUE_PAGE_1 = "https://books.toscrape.com/catalogue/page-1.html"
@@ -123,6 +123,7 @@ def run_stage_5(test_failure: bool = False):
 
     # 4. Normalize & Validate records
     valid_records, invalid_records = validate_and_store_records(raw_records)
+    export_records_to_csv(valid_records)
 
     # 5. Generate Run Report
     duration = time.perf_counter() - start_perf

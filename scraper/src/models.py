@@ -93,3 +93,43 @@ def validate_and_store_records(
     errors_file.write_text(json.dumps(invalid_records, indent=2, ensure_ascii=False), encoding="utf-8")
 
     return valid_records, invalid_records
+
+
+def export_records_to_csv(
+    records: List[Dict[str, Any]],
+    output_filename: str = "books.csv",
+) -> Path:
+    """
+    Export validated records to CSV, flattening multiline text descriptions.
+    """
+    import csv
+
+    csv_path = OUTPUT_DIR / output_filename
+    if not records:
+        return csv_path
+
+    fieldnames = [
+        "title",
+        "product_url",
+        "price_text",
+        "price_gbp",
+        "availability_text",
+        "rating_text",
+        "description",
+        "source_page",
+        "fetched_at",
+    ]
+
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for r in records:
+            row = dict(r)
+            # Flatten multiline text for clean CSV format
+            if row.get("description"):
+                row["description"] = " ".join(row["description"].split())
+            else:
+                row["description"] = ""
+            writer.writerow(row)
+
+    return csv_path
