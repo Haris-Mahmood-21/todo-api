@@ -1,8 +1,8 @@
 """
-Catalogue Crawler — Traverses pagination and discovers book URLs.
+Catalogue Crawler — Traverses pagination and discovers book URLs with provenance.
 """
 from urllib.parse import urljoin
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 from bs4 import BeautifulSoup
 from scraper.src.fetcher import fetch_url
 
@@ -13,7 +13,6 @@ def extract_book_links_from_catalogue(html: str, page_url: str) -> List[str]:
     """
     soup = BeautifulSoup(html, "html.parser")
     links = []
-    # Each book is in an <article class="product_pod">
     for article in soup.select("article.product_pod"):
         a_tag = article.select_one("h3 a")
         if a_tag and a_tag.get("href"):
@@ -37,17 +36,17 @@ def extract_next_page_url(html: str, current_page_url: str) -> Optional[str]:
 def crawl_catalogue(
     start_url: str = "https://books.toscrape.com/catalogue/page-1.html",
     max_pages: int = 3,
-) -> Tuple[List[str], List[str], int]:
+) -> Tuple[List[str], List[Dict[str, str]], int]:
     """
     Crawl up to max_pages of the catalogue following 'next' links.
     Returns:
         catalogue_pages: list of visited catalogue URLs
-        unique_urls: list of discovered unique book URLs
+        discovered_books: list of dicts with {"url": book_url, "source_page": catalogue_url}
         total_discovered: count of discovered links before deduplication
     """
     current_url = start_url
     catalogue_pages = []
-    discovered_urls = []
+    discovered_items = []
     page_num = 1
 
     while current_url and page_num <= max_pages:
@@ -56,7 +55,8 @@ def crawl_catalogue(
         catalogue_pages.append(current_url)
 
         links = extract_book_links_from_catalogue(html, current_url)
-        discovered_urls.extend(links)
+        for link in links:
+            discovered_items.append({"url": link, "source_page": current_url})
 
         if page_num < max_pages:
             next_url = extract_next_page_url(html, current_url)
@@ -68,10 +68,10 @@ def crawl_catalogue(
 
     # Remove duplicates while preserving discovery order
     seen = set()
-    unique_urls = []
-    for u in discovered_urls:
-        if u not in seen:
-            seen.add(u)
-            unique_urls.append(u)
+    unique_books = []
+    for item in discovered_items:
+        if item["url"] not in seen:
+            seen.add(item["url"])
+            unique_books.append(item)
 
-    return catalogue_pages, unique_urls, len(discovered_urls)
+    return catalogue_pages, unique_books, len(discovered_items)

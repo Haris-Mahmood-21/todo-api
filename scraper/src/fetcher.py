@@ -63,6 +63,7 @@ def fetch_url(
         req_headers.update(headers)
 
     response = requests.get(url, headers=req_headers, timeout=timeout)
+    response.encoding = "utf-8"
     _last_request_time = time.time()
 
     if response.status_code != 200:
