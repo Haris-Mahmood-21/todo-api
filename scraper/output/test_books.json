@@ -1,0 +1,13 @@
+[
+  {
+    "title": "Book 1",
+    "product_url": "https://books.toscrape.com/catalogue/book-1/index.html",
+    "price_text": "£10.00",
+    "price_gbp": 10.0,
+    "availability_text": "In stock",
+    "rating_text": "Five",
+    "description": "Desc 1",
+    "source_page": "https://books.toscrape.com/catalogue/page-1.html",
+    "fetched_at": "2026-08-23T12:00:00Z"
+  }
+]
