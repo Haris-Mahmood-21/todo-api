@@ -13,3 +13,6 @@ typing_extensions==4.16.0
 uvicorn==0.51.0
 psycopg[binary]==3.2.3
 python-dotenv==1.0.1
+requests==2.34.2
+beautifulsoup4==4.15.0
+pytest==9.1.1
